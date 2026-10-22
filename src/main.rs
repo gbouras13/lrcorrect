@@ -65,8 +65,9 @@ struct Cli {
     min_overlap: usize,
 
     /// Maximum number of overlapping reads used to correct each read
-    #[arg(long, default_value_t = 60)]
-    max_overlaps: usize,
+    /// [default: 60 for ont, 120 for pb]
+    #[arg(long)]
+    max_overlaps: Option<usize>,
 
     /// Minimum identity of an overlap alignment [default: 0.75 for ont, 0.65 for pb]
     #[arg(long)]
@@ -77,10 +78,10 @@ struct Cli {
     #[arg(long)]
     qual_char: Option<char>,
 
-    /// Inside a read, keep bases too few reads cover, uncorrected, instead of
-    /// cutting the read there (unsupported read ends are still trimmed)
+    /// Cut reads where too few other reads cover them, instead of keeping those
+    /// bases uncorrected. Unsupported read ends are trimmed either way
     #[arg(long)]
-    keep_unsupported: bool,
+    split_unsupported: bool,
 
     /// Write FASTA instead of FASTQ
     #[arg(long)]
@@ -109,13 +110,17 @@ fn run(cli: Cli) -> Result<()> {
         min_depth: cli.min_depth,
         min_length: cli.min_length,
         min_overlap: cli.min_overlap,
-        max_overlaps: cli.max_overlaps,
+        // noisier PacBio CLR reads need more of them for a stable consensus
+        max_overlaps: cli.max_overlaps.unwrap_or(match preset {
+            Preset::Ont => 60,
+            Preset::Pb => 120,
+        }),
         min_identity: cli.min_identity.unwrap_or(match preset {
             Preset::Ont => 0.75,
             Preset::Pb => 0.65,
         }),
         fixed_qual,
-        fill_holes: cli.keep_unsupported,
+        fill_holes: !cli.split_unsupported,
     };
     rayon::ThreadPoolBuilder::new()
         .num_threads(cli.threads.max(1))

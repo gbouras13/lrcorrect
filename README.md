@@ -20,9 +20,11 @@ lrcorrect -t 8 --target-bases 7500000 -o corrected.fastq reads.fastq.gz
 2. Find which reads overlap with minimap2's all-vs-all preset (`ava-ont`, or
    `ava-pb` with `--preset pb`).
 3. For every read, align its best `--max-overlaps` partners to it with minimap2,
-   left-align the indels and call a majority-vote consensus. Bases covered by
-   fewer than `--min-depth` other reads are cut out, so a read can come out
-   shorter, in pieces, or not at all.
+   left-align the indels and call a majority-vote consensus. Read ends covered
+   by fewer than `--min-depth` other reads are trimmed, so a read can come out
+   shorter, or not at all. Thinly covered stretches inside a read are kept
+   uncorrected (quality `!`), or cut out with `--split-unsupported`: on thin
+   inputs cutting leaves holes that fragment an assembly graph.
 4. Repeat for `--rounds` rounds (default 2), each on the previous round's output.
 
 Each read's correction depends only on the reads aligned to it, so the output is
@@ -53,9 +55,10 @@ Corrected reads are written as FASTQ, with qualities computed from the vote
       --min-depth <MIN_DEPTH>        Minimum other reads covering a base to correct it [default: 3]
       --min-length <MIN_LENGTH>      Minimum length of a corrected read [default: 500]
       --min-overlap <MIN_OVERLAP>    Minimum overlap length [default: 500]
-      --max-overlaps <MAX_OVERLAPS>  Maximum overlapping reads used per read [default: 60]
+      --max-overlaps <MAX_OVERLAPS>  Maximum overlapping reads used per read [default: 60 ont, 120 pb]
       --min-identity <MIN_IDENTITY>  Minimum overlap identity [default: 0.75 ont, 0.65 pb]
       --qual-char <QUAL_CHAR>        Fixed quality character for every base
+      --split-unsupported            Cut reads at thinly covered stretches instead of keeping them uncorrected
       --fasta                        Write FASTA instead of FASTQ
 ```
 

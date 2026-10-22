@@ -1,0 +1,24 @@
+[package]
+name = "lrcorrect"
+version = "0.1.0"
+edition = "2021"
+description = "Fast, deterministic self-correction of small long-read sets (plasmids, small genomes)"
+license = "MIT"
+readme = "README.md"
+authors = ["George Bouras <george.bouras@adelaide.edu.au>"]
+keywords = ["bioinformatics", "nanopore", "pacbio", "error-correction", "plasmid"]
+categories = ["science", "command-line-utilities"]
+rust-version = "1.80"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+flate2 = "1"
+minimap2 = { version = "0.1.31", default-features = false }
+needletail = { version = "0.7", default-features = false, features = ["flate2"] }
+rayon = "1"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

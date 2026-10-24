@@ -69,6 +69,11 @@ struct Cli {
     #[arg(long)]
     max_overlaps: Option<usize>,
 
+    /// Largest unaligned stretch both reads may continue with beyond an
+    /// overlap; above it, the match is taken to be a shared repeat
+    #[arg(long, default_value_t = 1000)]
+    max_overhang: usize,
+
     /// Minimum identity of an overlap alignment [default: 0.75 for ont, 0.65 for pb]
     #[arg(long)]
     min_identity: Option<f64>,
@@ -115,6 +120,7 @@ fn run(cli: Cli) -> Result<()> {
             Preset::Ont => 60,
             Preset::Pb => 120,
         }),
+        max_overhang: cli.max_overhang,
         min_identity: cli.min_identity.unwrap_or(match preset {
             Preset::Ont => 0.75,
             Preset::Pb => 0.65,
@@ -164,13 +170,15 @@ fn run(cli: Cli) -> Result<()> {
     };
     for (i, s) in stats.iter().enumerate() {
         eprintln!(
-            "lrcorrect: round {}: {} reads ({} bp) in, {} with overlaps, {} corrected reads ({} bp) out",
+            "lrcorrect: round {}: {} reads ({} bp) in, {} with overlaps, {} corrected reads ({} bp) out; {:.1}s finding overlaps, {:.1}s correcting",
             i + 1,
             s.reads_in,
             s.bases_in,
             s.reads_with_overlaps,
             s.reads_out,
-            s.bases_out
+            s.bases_out,
+            s.overlap_secs,
+            s.consensus_secs
         );
     }
 

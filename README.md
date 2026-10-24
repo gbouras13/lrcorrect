@@ -20,6 +20,8 @@ lrcorrect -t 8 --target-bases 7500000 -o corrected.fastq reads.fastq.gz
 2. Find which reads overlap with minimap2's all-vs-all preset (`ava-ont`, or
    `ava-pb` with `--preset pb`).
 3. For every read, align its best `--max-overlaps` partners to it with minimap2,
+   dropping matches where both reads carry on unaligned for more than
+   `--max-overhang` bases (a repeat they share, not an overlap), then
    left-align the indels and call a majority-vote consensus. Read ends covered
    by fewer than `--min-depth` other reads are trimmed, so a read can come out
    shorter, or not at all. Thinly covered stretches inside a read are kept
@@ -57,6 +59,7 @@ Corrected reads are written as FASTQ, with qualities computed from the vote
       --min-overlap <MIN_OVERLAP>    Minimum overlap length [default: 500]
       --max-overlaps <MAX_OVERLAPS>  Maximum overlapping reads used per read [default: 60 ont, 120 pb]
       --min-identity <MIN_IDENTITY>  Minimum overlap identity [default: 0.75 ont, 0.65 pb]
+      --max-overhang <MAX_OVERHANG>  Largest overhang of a true overlap; larger means a shared repeat [default: 1000]
       --qual-char <QUAL_CHAR>        Fixed quality character for every base
       --split-unsupported            Cut reads at thinly covered stretches instead of keeping them uncorrected
       --fasta                        Write FASTA instead of FASTQ

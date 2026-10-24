@@ -25,6 +25,7 @@ pub struct Params {
     pub min_overlap: usize,
     pub max_overlaps: usize,
     pub min_identity: f64,
+    pub max_overhang: usize,
     pub fixed_qual: Option<u8>,
     pub fill_holes: bool,
 }
@@ -36,6 +37,8 @@ pub struct RoundStats {
     pub reads_with_overlaps: usize,
     pub reads_out: usize,
     pub bases_out: usize,
+    pub overlap_secs: f64,
+    pub consensus_secs: f64,
 }
 
 /// Corrects `reads` and returns the corrected reads plus per-round counts. An
@@ -69,13 +72,17 @@ fn correct_round(
         bases_in: seqs.iter().map(|s| s.len()).sum(),
         ..Default::default()
     };
+    let started = std::time::Instant::now();
     let partners = find_overlaps(
         &seqs,
         params.preset,
         params.min_overlap,
         params.max_overlaps,
+        params.max_overhang,
     )?;
     stats.reads_with_overlaps = partners.iter().filter(|p| !p.is_empty()).count();
+    stats.overlap_secs = started.elapsed().as_secs_f64();
+    let started = std::time::Instant::now();
 
     // intermediate rounds keep qualities out of it: they are recomputed at the end
     let fixed_qual = if last { params.fixed_qual } else { Some(b'#') };
@@ -89,7 +96,9 @@ fn correct_round(
             let aligner = TargetAligner::new(&seqs[t], params.preset)?;
             let mut pileup = Pileup::new(&seqs[t]);
             for &p in &partners[t] {
-                if let Some(a) = aligner.align(&seqs[p], params.min_identity)? {
+                if let Some(a) =
+                    aligner.align(&seqs[p], params.min_identity, params.max_overhang)?
+                {
                     pileup.add(&Aligned {
                         query: &a.query,
                         q_start: a.q_start,
@@ -123,6 +132,7 @@ fn correct_round(
         })
         .collect::<anyhow::Result<_>>()?;
     let out: Vec<Record> = corrected.into_iter().flatten().collect();
+    stats.consensus_secs = started.elapsed().as_secs_f64();
     stats.reads_out = out.len();
     stats.bases_out = out.iter().map(|r| r.seq.len()).sum();
     Ok((out, stats))

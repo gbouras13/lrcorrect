@@ -189,3 +189,61 @@ fn broken_input_is_an_error() {
     assert_eq!(res.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&res.stderr).contains("cannot open /no/such/file.fq"));
 }
+
+#[test]
+fn shared_repeat_is_not_collapsed() {
+    // two circular "plasmids" that share an 800 bp region, 96% identical
+    let dir = tempfile::tempdir().unwrap();
+    let mut rng = SplitMix64::new(21);
+    let shared_a = random_genome(800, &mut rng);
+    let mut shared_b = shared_a.clone();
+    for i in (0..shared_b.len()).step_by(25) {
+        shared_b[i] = match shared_b[i] {
+            b'A' => b'C',
+            b'C' => b'G',
+            b'G' => b'T',
+            _ => b'A',
+        };
+    }
+    let mut a = random_genome(5_000, &mut rng);
+    a.extend_from_slice(&shared_a);
+    let mut b = random_genome(3_000, &mut rng);
+    b.extend_from_slice(&shared_b);
+    let mut reads = simulate(&a, 120, 2_500, 0.05, &mut rng);
+    reads.extend(simulate(&b, 120, 2_500, 0.05, &mut rng));
+    let input = dir.path().join("reads.fq");
+    write_fastq(&input, &reads);
+    let out = dir.path().join("out.fq");
+    let res = lrcorrect(&["-o", out.to_str().unwrap(), input.to_str().unwrap()]);
+    assert!(
+        res.status.success(),
+        "{}",
+        String::from_utf8_lossy(&res.stderr)
+    );
+    let corrected: Vec<Vec<u8>> = read_all(&out).unwrap().into_iter().map(|r| r.seq).collect();
+
+    // 15-mers found only in B's copy of the shared region must survive correction
+    let k = 15;
+    let in_a: std::collections::HashSet<Vec<u8>> =
+        shared_a.windows(k).map(|w| w.to_vec()).collect();
+    let b_only: std::collections::HashSet<Vec<u8>> = shared_b
+        .windows(k)
+        .map(|w| w.to_vec())
+        .filter(|w| !in_a.contains(w))
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    for r in &corrected {
+        for s in [r.clone(), lrcorrect::overlap::revcomp(r)] {
+            for w in s.windows(k) {
+                if b_only.contains(w) {
+                    seen.insert(w.to_vec());
+                }
+            }
+        }
+    }
+    let frac = seen.len() as f64 / b_only.len() as f64;
+    assert!(
+        frac > 0.9,
+        "only {frac} of B's copy of the repeat survived correction"
+    );
+}

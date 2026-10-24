@@ -33,16 +33,43 @@ fn read_id(i: usize) -> Vec<u8> {
     i.to_string().into_bytes()
 }
 
+/// The larger of the two overhangs of an alignment: sequence that both reads
+/// continue with, unaligned, beyond one end of it. A true overlap runs to the
+/// end of one read or the other on each side, so its overhangs are only the
+/// unalignable bits at read ends. A large overhang means the reads share a
+/// repeat - an IS element, or a region two plasmids have in common - but come
+/// from different places, and must not vote on each other's bases.
+/// Coordinates are minimap2's: the query's on its forward strand.
+#[allow(clippy::too_many_arguments)]
+pub fn overhang(
+    q_len: i32,
+    q_start: i32,
+    q_end: i32,
+    t_len: i32,
+    t_start: i32,
+    t_end: i32,
+    strand: Strand,
+) -> i32 {
+    let (qs, qe) = match strand {
+        Strand::Forward => (q_start, q_end),
+        Strand::Reverse => (q_len - q_end, q_len - q_start),
+    };
+    let left = qs.min(t_start);
+    let right = (q_len - qe).min(t_len - t_end);
+    left.max(right).max(0)
+}
+
 /// For every read, its overlapping reads, best first. A pair found once
 /// (minimap2's all-vs-all mode reports each pair a single time) is recorded for
-/// both reads. Overlaps shorter than `min_overlap` bases are ignored, and each
-/// read keeps at most `max_overlaps` partners, ranked by minimap2's count of
-/// matching bases.
+/// both reads. Overlaps shorter than `min_overlap` bases, and repeat-induced
+/// matches with an overhang over `max_overhang`, are ignored. Each read keeps at
+/// most `max_overlaps` partners, ranked by minimap2's count of matching bases.
 pub fn find_overlaps(
     seqs: &[Vec<u8>],
     preset: Preset,
     min_overlap: usize,
     max_overlaps: usize,
+    max_overhang: usize,
 ) -> anyhow::Result<Vec<Vec<usize>>> {
     let mut partners: Vec<Vec<(u32, usize)>> = vec![Vec::new(); seqs.len()];
     if seqs.len() < 2 {
@@ -87,7 +114,16 @@ pub fn find_overlaps(
             for m in maps {
                 let t = m.target_id as usize;
                 let len = (m.target_end - m.target_start).max(m.query_end - m.query_start);
-                if t != q && len as usize >= min_overlap {
+                let hang = overhang(
+                    seqs[q].len() as i32,
+                    m.query_start,
+                    m.query_end,
+                    m.target_len,
+                    m.target_start,
+                    m.target_end,
+                    m.strand,
+                );
+                if t != q && len as usize >= min_overlap && hang as usize <= max_overhang {
                     found.push((t, m.match_len.max(0) as u32, q));
                 }
             }
@@ -151,12 +187,14 @@ impl TargetAligner {
         Ok(TargetAligner { aligner })
     }
 
-    /// The longest alignment of `query` to the target, if it reaches
-    /// `min_identity` (matching bases over alignment columns).
+    /// The longest alignment of `query` to the target that reaches
+    /// `min_identity` (matching bases over alignment columns) and is a true
+    /// overlap rather than a shared repeat (see `overhang`).
     pub fn align(
         &self,
         query: &[u8],
         min_identity: f64,
+        max_overhang: usize,
     ) -> anyhow::Result<Option<TargetAlignment>> {
         if query.is_empty() {
             return Ok(None);
@@ -174,6 +212,18 @@ impl TargetAligner {
                     .is_some()
             })
             .filter(|m| m.block_len > 0 && m.match_len as f64 / m.block_len as f64 >= min_identity)
+            .filter(|m| {
+                let hang = overhang(
+                    query.len() as i32,
+                    m.query_start,
+                    m.query_end,
+                    m.target_len,
+                    m.target_start,
+                    m.target_end,
+                    m.strand,
+                );
+                hang as usize <= max_overhang
+            })
             .max_by_key(|m| (m.block_len, -(m.target_start)));
         Ok(best.map(|m| {
             let cigar = m.alignment.unwrap().cigar.unwrap();
@@ -188,5 +238,38 @@ impl TargetAligner {
                 cigar,
             }
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dovetail_and_containment_have_small_overhangs() {
+        // query 0..1000 overlaps target 9000..10000 (dovetail off the target's end)
+        assert_eq!(
+            overhang(5000, 0, 1000, 10000, 9000, 10000, Strand::Forward),
+            0
+        );
+        // query wholly contained in the target
+        assert_eq!(
+            overhang(3000, 0, 3000, 10000, 2000, 5000, Strand::Forward),
+            0
+        );
+        // reverse strand dovetail: the query's start is its forward-strand end
+        assert_eq!(
+            overhang(5000, 4000, 5000, 10000, 9000, 10000, Strand::Reverse),
+            0
+        );
+    }
+
+    #[test]
+    fn shared_repeat_has_a_large_overhang() {
+        // an 800 bp shared region in the middle of both reads
+        assert_eq!(
+            overhang(4000, 1500, 2300, 4000, 2000, 2800, Strand::Forward),
+            1500
+        );
     }
 }

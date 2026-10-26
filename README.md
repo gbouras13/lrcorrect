@@ -81,6 +81,10 @@ cargo test --release
 minimap2 is compiled from source by the `minimap2-sys` crate, so a C compiler
 and zlib are needed.
 
+## Benchmarks
+
+On 16 real ONT read sets with curated references (R9.4.1, R10.4 and R10.4.1; 68 plasmids), Unicycler recovered 41 complete circular plasmids from lrcorrect's reads and 40 from canu's. lrcorrect's reads were more accurate on 15 of the 16, and lrcorrect was faster on 14 of the 16 and used less memory. The write-up is in the [plassembler docs](https://github.com/gbouras13/plassembler/blob/main/docs/benchmarking_correction.md), and the data are on Zenodo: [doi:10.5281/zenodo.23656913](https://doi.org/10.5281/zenodo.23656913).
+
 ## Licence
 
 MIT
